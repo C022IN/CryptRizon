@@ -1,7 +1,7 @@
 # cryptrizon_sniper_bot.py
 # CryptRizon — scans ALL Binance spot coins, finds bottom/top zone setups,
-# adds 1-month fallbacks, BOB 1m tracker, coverage %, skip logs, and scheduler.
-# Requires: python-telegram-bot >=20,<23  and  requests
+# Adds 1-month fallbacks, BOB 1m tracker, coverage %, skip logs, and scheduler.
+# Requires: python-telegram-bot >=20,<23 and requests
 
 import os
 import re
@@ -10,16 +10,21 @@ import time
 import requests
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
-    Application, ApplicationBuilder, CommandHandler,
-    ContextTypes
+    ApplicationBuilder, CommandHandler, ContextTypes
 )
 
-# ========= CONFIG =========
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
+# ========= LOAD ENV =========
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 
+if not BOT_TOKEN:
+    raise SystemExit("❌ BOT_TOKEN is missing. Please set it in .env or environment.")
+
+# ========= CONFIG =========
 CONFIG_FILE = "cryptrizon_config.json"
 DEFAULT_CONFIG = {
     "symbols_cache": [],
@@ -141,13 +146,6 @@ def zone_label(pct: float) -> str:
         return "High"
     return "Mid"
 
-def momentum_bias(prices: List[float], hours: int = 12) -> str:
-    if len(prices) < 2:
-        return "flat"
-    sl = prices[-hours:] if len(prices) >= hours else prices
-    slope = sl[-1] - sl[0]
-    return "up" if slope > 0 else ("down" if slope < 0 else "flat")
-
 # ---------- scanning ----------
 def scan_symbols(days: int) -> Tuple[List[Dict], int, Dict[str, int]]:
     tokens = get_full_binance_universe(False)
@@ -185,16 +183,14 @@ def scan_symbols(days: int) -> Tuple[List[Dict], int, Dict[str, int]]:
 # ---------- build report ----------
 def build_status_text() -> str:
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    res3m, scanned_3m, skip3 = scan_symbols(CFG["alpha_days_primary"])
+    _, scanned_3m, skip3 = scan_symbols(CFG["alpha_days_primary"])
     symbols_total = len(get_full_binance_universe(False))
     coverage = fmt_pct((scanned_3m / symbols_total) * 100) if symbols_total else "0.0%"
-
-    header = (
+    return (
         f"📡 CryptRizon Sniper — {now}\n"
         f"Symbols fetched: {symbols_total} | Scanned (3m): {scanned_3m} | Coverage: {coverage}\n"
         f"Skipped: {skip3['no_cg_match']} no CG match, {skip3['no_price_data']} no price data"
     )
-    return header
 
 # ---------- commands ----------
 def is_admin(update: Update) -> bool:
@@ -204,8 +200,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "CryptRizon Sniper 🤖\n"
         "/status — Full report\n"
-        "/config — View settings\n"
-        "/setinterval H — Auto-push interval\n"
         "/pushnow — Send an update now"
     )
 
@@ -217,24 +211,22 @@ async def pushnow_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(build_status_text())
 
-# ---------- async entry ----------
-import asyncio
-
-async def main():
+# ---------- main ----------
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("pushnow", pushnow_cmd))
 
-    # Auto push job
-    if ADMIN_CHAT_ID:
+    # Auto push job if interval > 0
+    if ADMIN_CHAT_ID and CFG["push_interval_hours"] > 0:
         app.job_queue.run_repeating(
             lambda ctx: ctx.bot.send_message(chat_id=ADMIN_CHAT_ID, text=build_status_text()),
             interval=CFG["push_interval_hours"] * 3600,
             first=5
         )
 
-    await app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
