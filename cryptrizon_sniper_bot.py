@@ -11,7 +11,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ========= CONFIG =========
 # Option A: hardcode here
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_NEW_BOT_TOKEN")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8346599110:AAFg4yM1npJdS-eAy2d8tkrRLgxCIXbH_gk")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "6968479583")
 
 CONFIG_FILE = "cryptrizon_config.json"
