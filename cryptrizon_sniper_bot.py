@@ -1,6 +1,6 @@
 # cryptrizon_sniper_bot.py
 # CryptRizon — scans ALL Binance spot coins, finds bottom/top zone setups,
-# Adds 1-month fallbacks, BOB 1m tracker, coverage %, skip logs, and scheduler.
+# Adds coverage %, skip logs, and scheduler.
 # Requires: python-telegram-bot >=20,<23 and requests
 
 import os
@@ -10,31 +10,25 @@ import time
 import requests
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
-from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes
+    ApplicationBuilder, CommandHandler, ContextTypes, JobQueue
 )
 
-# ========= LOAD ENV =========
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
+# ========= CONFIG =========
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "").strip()
 
 if not BOT_TOKEN:
-    raise SystemExit("❌ BOT_TOKEN is missing. Please set it in .env or environment.")
+    raise ValueError("BOT_TOKEN not found in environment variables")
 
-# ========= CONFIG =========
 CONFIG_FILE = "cryptrizon_config.json"
 DEFAULT_CONFIG = {
     "symbols_cache": [],
     "symbols_cache_updated": 0,
     "symbols_cache_ttl_hours": 12,
-    "fallback_enabled": True,
     "push_interval_hours": 6,
-    "bob_days": 30,
     "alpha_days_primary": 90,
-    "alpha_days_fallback": 30,
     "bottom_pct": 0.20,
     "top_pct": 0.80
 }
@@ -70,9 +64,6 @@ def get_json(url: str, params: dict = None, headers: dict = None, timeout=25):
         return r.json()
     except Exception:
         return None
-
-def fmt(x: float) -> str:
-    return f"{x:.10f}".rstrip("0").rstrip(".")
 
 def fmt_pct(x: float) -> str:
     return f"{x:.1f}%"
@@ -157,8 +148,6 @@ def scan_symbols(days: int) -> Tuple[List[Dict], int, Dict[str, int]]:
     for sym in tokens:
         cg_id = resolve_cg_id(sym)
         if not cg_id:
-            cg_id = resolve_cg_id(sym + " solana")
-        if not cg_id:
             skip_reasons["no_cg_match"] += 1
             skip_list.append((sym, "no_cg_match"))
             continue
@@ -171,7 +160,7 @@ def scan_symbols(days: int) -> Tuple[List[Dict], int, Dict[str, int]]:
 
         scanned += 1
         cur, low, high, pct = zone_metrics(prices)
-        out.append({"name": sym, "cur": cur, "low": low, "high": high, "pct": pct, "zone": zone_label(pct)})
+        out.append({"name": sym, "pct": pct, "zone": zone_label(pct)})
 
     today = datetime.utcnow().strftime("%Y-%m-%d")
     with open(f"skip_log_{today}.txt", "w", encoding="utf-8") as f:
@@ -188,7 +177,7 @@ def build_status_text() -> str:
     coverage = fmt_pct((scanned_3m / symbols_total) * 100) if symbols_total else "0.0%"
     return (
         f"📡 CryptRizon Sniper — {now}\n"
-        f"Symbols fetched: {symbols_total} | Scanned (3m): {scanned_3m} | Coverage: {coverage}\n"
+        f"Symbols fetched: {symbols_total} | Scanned: {scanned_3m} | Coverage: {coverage}\n"
         f"Skipped: {skip3['no_cg_match']} no CG match, {skip3['no_price_data']} no price data"
     )
 
@@ -211,14 +200,20 @@ async def pushnow_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(build_status_text())
 
-# ---------- main ----------
+# ---------- async entry ----------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Ensure job_queue exists
+    if not app.job_queue:
+        app.job_queue = JobQueue()
+        app.job_queue.set_application(app)
+        app.job_queue.start()
+
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("pushnow", pushnow_cmd))
 
-    # Auto push job if interval > 0
     if ADMIN_CHAT_ID and CFG["push_interval_hours"] > 0:
         app.job_queue.run_repeating(
             lambda ctx: ctx.bot.send_message(chat_id=ADMIN_CHAT_ID, text=build_status_text()),
