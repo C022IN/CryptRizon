@@ -1,0 +1,19 @@
+[Unit]
+Description=CryptRizon Telegram Bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/cryptrizon
+ExecStart=/root/cryptrizon/.venv/bin/python /root/cryptrizon/cryptrizon_sniper_bot.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+# If you use an .env file, uncomment the next line and point to it:
+# EnvironmentFile=/root/cryptrizon/.env
+
+[Install]
+WantedBy=multi-user.target
