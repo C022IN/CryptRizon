@@ -642,3 +642,7 @@ if os.getenv("RUN_TESTS") == "1":
     _assert(0.0 <= pct_low <= 1.0, "flat range pct")
     _assert(fmt(1.2300000) == "1.23", "fmt trimming failed")
     print("Self-tests passed ✅")
+if __name__ == "__main__":
+    import uvicorn, os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
