@@ -1,42 +1,33 @@
-# CryptRizon — Binance-wide Bottom/Top Sniper
+# CryptRizon Actions
 
-Scans **all Binance spot coins** and reports:
-- 🎯 Bottom‑Zone Sniper (3‑month), with 1‑month fallback
-- 📈 Top‑Zone Watch (3‑month), with 1‑month fallback
-- 🪙 BOB (Build On BNB) 30‑day special tracker
-- Coverage %, counts scanned, and a daily skip log file
+FastAPI backend for CryptRizon GPT.
 
-## Commands
-- `/status` — full report on demand
-- `/config` — view settings
-- `/setinterval H` — auto push cadence (hours)
-- `/pushnow` — send report now
-- `/refreshalpha` — refresh Binance symbols cache
-- `/setzones BOTTOM% TOP%` — e.g., `/setzones 15 85`
-- `/zones` — show current zone thresholds
+## Endpoints
 
-## Quick start — local or VPS
+- `/status` — returns full scan & report (Telegram-ready text)
+- `/binance/bases` — Binance spot bases
+- `/coingecko/search` — resolve token to CoinGecko id
+- `/coingecko/prices` — market chart arrays
+- `/config` — get or set config (zones, Alpha list)
+- `/telegram/push` — send message to Telegram admin chat
+
+## Deployment
+
+### Railway / Render
+1. Create repo with files: `app.py`, `requirements.txt`, `Procfile`, `README.md`.
+2. Deploy service, set environment vars:
+   - BOT_TOKEN (Telegram bot token, optional)
+   - ADMIN_CHAT_ID (Telegram chat id, optional)
+   - CONFIG_FILE (optional, default cryptrizon_config.json)
+3. Railway/Render gives you public HTTPS URL, use it in your GPT Action OpenAPI spec.
+
+### Fly.io (Docker)
+Use included Dockerfile, run `flyctl launch`.
+
+## Local Dev
 ```bash
-# Ubuntu
-sudo apt update
-sudo apt install -y git python3 python3-venv
-
-# clone your repo
-git clone https://github.com/<YOU>/CryptRizon.git
-cd CryptRizon
-
-# set config (A: hardcode in .py OR B: env file)
-# A) edit cryptrizon_sniper_bot.py and set BOT_TOKEN + ADMIN_CHAT_ID
-# B) use .env:
-cp .env.example .env
-# edit .env values
-export $(grep -v '^#' .env | xargs)
-
-# venv + install
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
 pip install -r requirements.txt
+uvicorn app:app --reload --port 8000
+```
 
-# run once (you'll get an immediate Telegram report)
-python cryptrizon_sniper_bot.py
+Then open http://localhost:8000/status
