@@ -1,10 +1,3 @@
-try:
-    import ssl
-except ModuleNotFoundError as e:
-    raise RuntimeError(
-        "Python was built without OpenSSL/ssl. Reinstall Python with SSL support or use a base image like python:3.11-slim and ensure ca-certificates are installed."
-    ) from e
-
 import os, json, time, asyncio, copy
 from contextlib import asynccontextmanager, suppress
 from typing import List, Dict, Optional, Tuple
@@ -16,6 +9,11 @@ import httpx
 from fastapi import FastAPI, HTTPException, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+try:
+    import ssl
+except ModuleNotFoundError as e:
+    raise RuntimeError("Python was built without OpenSSL/ssl. Use python:3.11-slim or similar base image.") from e
 
 BINANCE_PRODUCTS = "https://www.binance.com/bapi/asset/v1/public/asset-service/product/get-products"
 BINANCE_PRODUCTS_ALT = "https://www.binance.com/bapi/asset/v2/public/asset-service/product/get-product-list"
@@ -122,9 +120,6 @@ class ConfigManager:
             except FileNotFoundError:
                 self._mtime = time.time()
             return copy.deepcopy(self._cfg)
-
-    async def get(self, key: str, default=None):
-        return (await self.read()).get(key, default)
 
     async def cg_cache_get(self, key: str) -> Optional[str]:
         return (await self.read()).get("cg_id_cache", {}).get(key)
@@ -584,11 +579,8 @@ async def api_alpha_rm(items: List[str] = Body(...)):
 
 @app.get("/status")
 async def api_status(request: Request):
-    try:
-        text = await build_status_text(request.app)
-        return {"text": text}
-    except Exception as e:
-        raise HTTPException(500, f"status_failed: {e}")
+    text = await build_status_text(request.app)
+    return {"text": text}
 
 @app.get("/status/raw")
 async def api_status_raw(request: Request):
@@ -598,17 +590,19 @@ async def api_status_raw(request: Request):
 class PushPayload(BaseModel):
     text: str
 
-@app.post("/telegram/push")
-async def api_telegram_push(request: Request, _: bool = Depends(require_push_auth), payload: PushPayload = Body(...)):
+async def send_telegram(client: httpx.AsyncClient, text: str):
     if not BOT_TOKEN or not ADMIN_CHAT_ID:
         raise HTTPException(400, "telegram not configured")
-    client: httpx.AsyncClient = request.app.state.client
     r = await client.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={"chat_id": ADMIN_CHAT_ID, "text": payload.text},
+        json={"chat_id": ADMIN_CHAT_ID, "text": text},
     )
     if r.status_code != 200:
         raise HTTPException(500, r.text)
+
+@app.post("/telegram/push")
+async def api_telegram_push(request: Request, _: bool = Depends(require_push_auth), payload: PushPayload = Body(...)):
+    await send_telegram(request.app.state.client, payload.text)
     return {"ok": True}
 
 async def autopush_loop(app: FastAPI):
@@ -623,11 +617,7 @@ async def autopush_loop(app: FastAPI):
         try:
             text = await build_status_text(app)
             if BOT_TOKEN and ADMIN_CHAT_ID:
-                client: httpx.AsyncClient = app.state.client
-                await client.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={"chat_id": ADMIN_CHAT_ID, "text": text},
-                )
+                await send_telegram(app.state.client, text)
         except Exception as e:
             print("Auto-push error:", e)
 
@@ -641,8 +631,6 @@ if os.getenv("RUN_TESTS") == "1":
     _, _, _, pct_low = zone_metrics([5, 5, 5])
     _assert(0.0 <= pct_low <= 1.0, "flat range pct")
     _assert(fmt(1.2300000) == "1.23", "fmt trimming failed")
+    _assert(_strip_quote("ABCUSDT") == "ABC", "strip quote failed")
+    _assert(asyncio.get_event_loop() is not None, "event loop missing")
     print("Self-tests passed ✅")
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("app:app", host="0.0.0.0", port=port)
