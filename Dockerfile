@@ -19,5 +19,6 @@ ENV PORT=8000
 EXPOSE 8000
 
 # Use shell form so $PORT expands; fallback to 8000 if not set
-CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["python", "-u", "-c", "import os, uvicorn; uvicorn.run('app:app', host='0.0.0.0', port=int(os.getenv('PORT','8000')))" ]
+
 
